@@ -80,6 +80,77 @@
             color: var(--text-muted);
             text-align: center;
         }
+
+        .tab-bar {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 4px;
+        }
+        .tab-btn {
+            flex: 1;
+            text-align: center;
+            padding: 12px 0;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-weight: 700;
+            letter-spacing: 1px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            font-family: inherit;
+        }
+        .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .tab-panel { display: none; flex-direction: column; gap: 16px; }
+        .tab-panel.active { display: flex; }
+
+        .section-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .combo-item {
+            background: #18221b;
+            border-left: 4px solid #4caf50;
+            padding: 12px;
+            border-radius: 0 8px 8px 0;
+        }
+        .combo-item-title { color: #4caf50; font-weight: bold; font-size: 0.9rem; margin-bottom: 4px; }
+        .combo-item-note { font-size: 0.85rem; color: var(--text-main); }
+
+        .guide-card {
+            background: #18181d;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .guide-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 14px;
+            cursor: pointer;
+        }
+        .guide-card-header-title { font-weight: 700; font-size: 0.95rem; }
+        .guide-card-chevron { color: var(--text-muted); transition: transform 0.2s; font-size: 0.75rem; }
+        .guide-card-chevron.open { transform: rotate(180deg); }
+        .guide-card-body { display: none; padding: 0 14px 12px 14px; }
+        .guide-card-body.open { display: block; }
+        .guide-bracket {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 8px 0;
+            border-top: 1px solid var(--border);
+        }
+        .guide-bracket:first-child { border-top: none; }
+        .guide-bracket-range { color: var(--accent); font-weight: 700; font-size: 0.85rem; white-space: nowrap; }
+        .guide-bracket-info { flex: 1; text-align: right; }
+        .guide-bracket-method { color: var(--text-main); font-weight: 600; font-size: 0.85rem; }
+        .guide-bracket-note { color: var(--text-muted); font-size: 0.75rem; margin-top: 2px; }
     </style>
 </head>
 <body>
@@ -90,6 +161,12 @@
         <p>OSRS F2P Master Leveling & Economy Console</p>
     </header>
 
+    <div class="tab-bar">
+        <button class="tab-btn active" id="tabBtnCalculator" onclick="switchTab('calculator')">CALCULATOR</button>
+        <button class="tab-btn" id="tabBtnGuides" onclick="switchTab('guides')">GUIDES</button>
+    </div>
+
+    <div class="tab-panel active" id="calculatorTab">
     <div class="card">
         <div class="input-group">
             <label>Auto-Detect Stats via Screenshot</label>
@@ -158,6 +235,18 @@
             <div id="comboText"></div>
         </div>
     </div>
+    </div>
+
+    <div class="tab-panel" id="guidesTab">
+        <div class="card">
+            <div class="section-label">Multiskilling Synergies</div>
+            <div id="combosContainer" style="display: flex; flex-direction: column; gap: 10px;"></div>
+        </div>
+        <div class="card">
+            <div class="section-label">Skill Guides (1-99)</div>
+            <div id="guidesContainer" style="display: flex; flex-direction: column; gap: 10px;"></div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -167,6 +256,13 @@
             points += Math.floor(lvl + 300 * Math.pow(2, lvl / 7.0));
         }
         return Math.floor(points / 4);
+    }
+
+    function xpToLevel(xp) {
+        for (let lvl = 99; lvl >= 1; lvl--) {
+            if (getLevelXP(lvl) <= xp) return lvl;
+        }
+        return 1;
     }
 
     // The Massive F2P Bestiary Master List
@@ -304,11 +400,17 @@
         ]}
     };
 
-    // Standard OSRS stats tab grid order (left-to-right, top-to-bottom).
-    // This layout is fixed regardless of account levels, so we map by
-    // GEOMETRIC POSITION instead of searching for skill-name text (the
-    // real skill tab has no text labels at all - just icons).
-    // Sailing was added as the 24th skill on 19 Nov 2025, appearing last.
+    // Two screenshot formats are supported and auto-detected:
+    //   1. Hiscores/"personal scores" style tables - plain rendered text,
+    //      skill names spelled out next to Rank/Level/XP columns. We match
+    //      skill names (fuzzy, to tolerate OCR noise) and derive the level
+    //      from the XP column via the same formula used elsewhere in this
+    //      app, since XP reads far more reliably than the cramped Level
+    //      column does.
+    //   2. The real in-game stats tab - icons only, no text labels at all.
+    //      Numbers are mapped by their FIXED GEOMETRIC POSITION in the
+    //      known 3-column grid instead. Sailing was added as the 24th
+    //      skill on 19 Nov 2025, appearing last in the grid.
     const OSRS_SKILL_GRID_ORDER = [
         "Attack", "Hitpoints", "Mining",
         "Strength", "Agility", "Smithing",
@@ -319,19 +421,88 @@
         "Runecraft", "Slayer", "Farming",
         "Construction", "Hunter", "Sailing"
     ];
+    const F2P_SKILL_NAMES = ["Attack","Hitpoints","Mining","Strength","Agility","Smithing",
+        "Defence","Herblore","Fishing","Ranged","Thieving","Cooking","Prayer","Crafting",
+        "Firemaking","Magic","Fletching","Woodcutting","Runecraft"];
 
     let detectedLevels = {};
 
     function isLevelText(r, g, b) {
-        // OSRS stat numbers render in a bright yellow/gold color, distinct
-        // from the gray/brown icons and backgrounds around them.
+        // OSRS in-game stat numbers render in a bright yellow/gold color,
+        // distinct from the gray/brown icons and backgrounds around them.
         return r > 140 && g > 110 && b < 130 && (r - b) > 50 && Math.abs(r - g) < 30;
+    }
+
+    function levenshtein(a, b) {
+        const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+        for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+        for (let i = 1; i <= a.length; i++)
+            for (let j = 1; j <= b.length; j++)
+                dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+        return dp[a.length][b.length];
+    }
+
+    function findSkillInLine(line) {
+        for (const word of line.trim().split(/\s+/)) {
+            const clean = word.replace(/[^a-zA-Z]/g, '');
+            if (clean.length < 3) continue;
+            for (const skill of F2P_SKILL_NAMES) {
+                if (levenshtein(clean.toLowerCase(), skill.toLowerCase()) <= 1) return skill;
+            }
+        }
+        return null;
+    }
+
+    // Matches thousands-grouped numbers (e.g. "280,015") even when OCR
+    // mangles the comma into other punctuation, or falls back to any
+    // 4+ digit run.
+    const XP_NUMBER_PATTERN = /\d{1,3}(?:[.,:;|\s]\d{3})+|\d{4,}/g;
+
+    function preprocessForHiscoresFormat(file) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                const scale = 2;
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width * scale;
+                canvas.height = img.height * scale;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Canvas export failed")), 'image/png');
+            };
+            img.onerror = () => reject(new Error("Image load failed"));
+            img.src = URL.createObjectURL(file);
+        });
+    }
+
+    async function tryHiscoresFormat(file, worker) {
+        const blob = await preprocessForHiscoresFormat(file);
+        await worker.setParameters({ tessedit_pageseg_mode: '6', tessedit_char_whitelist: '' });
+        const { data } = await worker.recognize(blob);
+
+        const detected = {};
+        let statedTotal = null;
+        for (const line of data.text.split('\n')) {
+            if (/overall|total/i.test(line)) {
+                const m = line.match(/\b(\d{2,4})\b/);
+                if (m) statedTotal = parseInt(m[1], 10);
+                continue;
+            }
+            const skill = findSkillInLine(line);
+            if (!skill) continue;
+            const matches = [...line.matchAll(XP_NUMBER_PATTERN)].map(m => m[0].replace(/[^\d]/g, ''));
+            if (matches.length === 0) continue;
+            const best = matches.reduce((a, b) => b.length > a.length ? b : a);
+            const xp = parseInt(best, 10);
+            if (!isNaN(xp)) detected[skill] = xpToLevel(xp);
+        }
+        return { detected, statedTotal };
     }
 
     // Isolate the level numbers from everything else (icons, borders,
     // backgrounds) by recoloring to pure black-on-white, and upscale so
     // the small pixel font is easier for Tesseract to resolve.
-    function preprocessImageForOcr(file) {
+    function preprocessForGridFormat(file) {
         return new Promise((resolve, reject) => {
             const img = new Image();
             img.onload = () => {
@@ -362,61 +533,35 @@
         });
     }
 
-    async function handleImageUpload(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-
-        const status = document.getElementById('ocrStatus');
-        status.innerText = "Preprocessing screenshot...";
-
-        let worker;
-        try {
-            const { blob, width } = await preprocessImageForOcr(file);
-            status.innerText = "Scanning screenshot for stats...";
-
-            worker = await Tesseract.createWorker('eng');
-            await worker.setParameters({
-                tessedit_char_whitelist: '0123456789',
-                tessedit_pageseg_mode: '11' // sparse text - scattered numbers, not paragraphs
-            });
-            const { data } = await worker.recognize(blob);
-
-            parseGridOcrWords(data.words, width);
-        } catch (err) {
-            console.error(err);
-            status.innerText = "Error scanning image. Try manual entry.";
-        } finally {
-            if (worker) await worker.terminate();
-        }
-    }
-
     // Maps recognized numbers to skills by their GEOMETRIC POSITION in the
     // fixed 3-column grid, rather than trying to read a skill name that
-    // doesn't exist in the screenshot. Each cell shows two stacked numbers
-    // (current/max level); when both are readable we require them to agree
-    // before trusting the value, since a wrong level is worse than a
-    // missing one for planning purposes. Very low levels (1-9) often can't
-    // be read at all from a compressed screenshot - that's an OCR
-    // resolution limit, not a bug, and those need manual entry.
-    function parseGridOcrWords(words, imgWidth) {
-        const status = document.getElementById('ocrStatus');
-        const numberWords = (words || [])
-            .filter(w => /^\d+$/.test(w.text.trim()) && (w.bbox.y1 - w.bbox.y0) < imgWidth * 0.15)
+    // doesn't exist in this screenshot format. Each cell shows two stacked
+    // numbers (current/max level); when both are readable we require them
+    // to agree before trusting the value, since a wrong level is worse
+    // than a missing one for planning purposes. Very low levels (1-9)
+    // often can't be read at all from a compressed screenshot - that's an
+    // OCR resolution limit, not a bug, and those need manual entry.
+    async function tryGridFormat(file, worker) {
+        const { blob, width } = await preprocessForGridFormat(file);
+        await worker.setParameters({
+            tessedit_char_whitelist: '0123456789',
+            tessedit_pageseg_mode: '11' // sparse text - scattered numbers, not paragraphs
+        });
+        const { data } = await worker.recognize(blob);
+
+        const numberWords = (data.words || [])
+            .filter(w => /^\d+$/.test(w.text.trim()) && (w.bbox.y1 - w.bbox.y0) < width * 0.15)
             .map(w => ({
                 text: w.text.trim(),
                 cx: (w.bbox.x0 + w.bbox.x1) / 2,
                 cy: (w.bbox.y0 + w.bbox.y1) / 2
             }));
 
-        if (numberWords.length === 0) {
-            status.innerText = "Could not read any levels from this screenshot. Please select manually.";
-            return;
-        }
+        if (numberWords.length === 0) return {};
 
-        // Cluster into rows (merges each cell's stacked current/max numbers)
         const sortedByY = [...numberWords].sort((a, b) => a.cy - b.cy);
         const rowClusters = [];
-        const withinRowThreshold = imgWidth * 0.08;
+        const withinRowThreshold = width * 0.08;
         for (const w of sortedByY) {
             let cluster = rowClusters.find(c => Math.abs(c.centerY - w.cy) < withinRowThreshold);
             if (!cluster) {
@@ -428,12 +573,10 @@
         }
         rowClusters.sort((a, b) => a.centerY - b.centerY);
 
-        // Canonical row spacing = smallest gap between adjacent row clusters
-        // (larger gaps mean a row in between had nothing readable in it)
         const gaps = [];
         for (let i = 1; i < rowClusters.length; i++) gaps.push(rowClusters[i].centerY - rowClusters[i - 1].centerY);
         gaps.sort((a, b) => a - b);
-        const rowStep = gaps.length ? gaps[0] : imgWidth * 0.44;
+        const rowStep = gaps.length ? gaps[0] : width * 0.44;
         const anchorY = rowClusters[0].centerY;
 
         const cellReadings = {};
@@ -441,7 +584,7 @@
             const rowIdx = Math.round((cluster.centerY - anchorY) / rowStep);
             if (rowIdx < 0 || rowIdx > 7) continue;
             for (const w of cluster.words) {
-                const col = w.cx < imgWidth / 3 ? 0 : (w.cx < 2 * imgWidth / 3 ? 1 : 2);
+                const col = w.cx < width / 3 ? 0 : (w.cx < 2 * width / 3 ? 1 : 2);
                 const skillIdx = rowIdx * 3 + col;
                 if (skillIdx >= OSRS_SKILL_GRID_ORDER.length) continue;
                 const skill = OSRS_SKILL_GRID_ORDER[skillIdx];
@@ -451,19 +594,65 @@
             }
         }
 
-        detectedLevels = {};
+        const detected = {};
         for (const skill in cellReadings) {
             const readings = cellReadings[skill];
-            const allAgree = readings.every(r => r === readings[0]);
-            if (allAgree) detectedLevels[skill] = readings[0];
+            if (readings.every(r => r === readings[0])) detected[skill] = readings[0];
         }
+        return detected;
+    }
 
-        const foundCount = Object.keys(detectedLevels).length;
-        if (foundCount > 0) {
-            status.innerText = `Detected ${foundCount} of 24 skill levels. Very low levels (1-9) often can't be auto-read - switch skills below to auto-fill or enter those manually.`;
-            applyDetectedLevel();
-        } else {
-            status.innerText = "Could not automatically isolate stats. Please select manually.";
+    async function handleImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const status = document.getElementById('ocrStatus');
+        status.innerText = "Scanning screenshot for stats...";
+
+        let worker;
+        try {
+            worker = await Tesseract.createWorker('eng');
+
+            // Try the hiscores-table format first (cheap plain-text OCR).
+            // If it finds enough skills, this was clearly that format.
+            const { detected: hiscoresResult, statedTotal } = await tryHiscoresFormat(file, worker);
+
+            let finalResult = hiscoresResult;
+            let usedFallback = false;
+            if (Object.keys(hiscoresResult).length < 3) {
+                usedFallback = true;
+                finalResult = await tryGridFormat(file, worker);
+            }
+
+            detectedLevels = finalResult;
+            const foundCount = Object.keys(detectedLevels).length;
+
+            if (foundCount === 0) {
+                status.innerText = "Could not automatically isolate stats. Please select manually.";
+            } else {
+                let msg = `Detected ${foundCount} skill level${foundCount === 1 ? '' : 's'}.`;
+                // Sanity check: only meaningful for the hiscores format,
+                // where we also read a stated Overall/Total level to
+                // cross-check the sum of what we derived.
+                if (!usedFallback && statedTotal != null) {
+                    const sum = Object.values(detectedLevels).reduce((a, b) => a + b, 0);
+                    if (Math.abs(sum - statedTotal) > 2) {
+                        msg += ` Warning: detected levels sum to ${sum}, but the screenshot's stated total is ${statedTotal} - one or more values may have misread. Double-check before relying on these.`;
+                    }
+                }
+                if (usedFallback) {
+                    msg += " Very low levels (1-9) often can't be auto-read from this screenshot type - switch skills below to auto-fill or enter those manually.";
+                } else {
+                    msg += " Switch skills below to auto-fill each one.";
+                }
+                status.innerText = msg;
+                applyDetectedLevel();
+            }
+        } catch (err) {
+            console.error(err);
+            status.innerText = "Error scanning image. Try manual entry.";
+        } finally {
+            if (worker) await worker.terminate();
         }
     }
 
@@ -585,6 +774,145 @@
             comboText.innerText = "Pair with Magic: Bring a Fire Staff and Nature runes to superheat your iron/gold ore right inside the mine.";
         } else {
             comboBox.style.display = "none";
+        }
+    }
+
+    // Level-bracket training guides for all 15 F2P skills. Kept in the
+    // same order as the Select Skill dropdown groups (Combat, Gathering,
+    // Artisan). Sourced from established F2P training routes; Hitpoints
+    // and Prayer are single-bracket since they train differently
+    // (passively / via bone-burying) rather than through level ranges.
+    const skillGuides = {
+        "Attack": [
+            { range: "1-20", method: "Chickens or Cows", note: "Lumbridge farms - safe, low risk" },
+            { range: "20-40", method: "Barbarians or Hill Giants", note: "Barbarian Village / Edgeville Dungeon" },
+            { range: "40-60", method: "Moss Giants", note: "Varrock Sewers or Crandor - good drops" },
+            { range: "60-99", method: "Ankou or Greater Demons", note: "Bring food and a solid weapon" }
+        ],
+        "Strength": [
+            { range: "1-20", method: "Chickens or Cows", note: "Lumbridge farms - safe, low risk" },
+            { range: "20-40", method: "Barbarians or Hill Giants", note: "Barbarian Village / Edgeville Dungeon" },
+            { range: "40-60", method: "Moss Giants", note: "Varrock Sewers or Crandor - good drops" },
+            { range: "60-99", method: "Ankou or Greater Demons", note: "Higher hits, more consistent XP" }
+        ],
+        "Defence": [
+            { range: "1-20", method: "Chickens or Cows", note: "Use the best attack-style weapon you own" },
+            { range: "20-40", method: "Barbarians or Hill Giants", note: "Barbarian Village / Edgeville Dungeon" },
+            { range: "40-60", method: "Moss Giants", note: "Varrock Sewers or Crandor" },
+            { range: "60-99", method: "Ankou or Greater Demons", note: "Prioritize survivability gear" }
+        ],
+        "Ranged": [
+            { range: "1-20", method: "Seagulls, Cows, Chickens", note: "Port Sarim / Lumbridge - low Defence targets" },
+            { range: "20-40", method: "Barbarians (safespotted)", note: "Shoot over the tables in Barbarian Village" },
+            { range: "40-60", method: "Hill Giants or Moss Giants", note: "Safespot where the terrain allows" },
+            { range: "60-99", method: "Ankou or Greater Demons", note: "Stock up on arrows before a trip" }
+        ],
+        "Magic": [
+            { range: "1-9", method: "Wind Strike on Chickens/Cows", note: "Cheapest combat spell - Mind + Air runes" },
+            { range: "9-22", method: "Keep casting Strike spells", note: "Or start High Alching cheap items for profit" },
+            { range: "22-35", method: "Fire Strike", note: "Better XP once you can afford the runes" },
+            { range: "35-55", method: "Superheat Item combo", note: "Pairs with Mining - see synergies below" },
+            { range: "55-99", method: "High Level Alchemy", note: "Semi-passive XP while making coin on the side" }
+        ],
+        "Prayer": [
+            { range: "1-99", method: "Bury Big Bones", note: "Best F2P XP/bone - drops from Hill Giants and Moss Giants" }
+        ],
+        "Hitpoints": [
+            { range: "1-99", method: "Trains automatically", note: "Any combat XP you earn (melee, Ranged, or Magic) also trains Hitpoints" }
+        ],
+        "Woodcutting": [
+            { range: "1-15", method: "Normal Trees", note: "Lumbridge or Varrock" },
+            { range: "15-30", method: "Oak Trees", note: "Draynor Village" },
+            { range: "30-60", method: "Willow Trees", note: "Draynor - pairs with Firemaking" },
+            { range: "60-99", method: "Yew Trees", note: "Falador or Edgeville" }
+        ],
+        "Mining": [
+            { range: "1-15", method: "Copper & Tin Ore", note: "Lumbridge Swamp or Al Kharid" },
+            { range: "15-30", method: "Iron Ore (power-mine)", note: "Al Kharid 3-rock triangle" },
+            { range: "30-99", method: "Coal, or continue Iron", note: "Mining Guild - F2P has no ore past this tier" }
+        ],
+        "Fishing": [
+            { range: "1-5", method: "Shrimp / Anchovies", note: "Lumbridge Swamp" },
+            { range: "5-20", method: "Sardines / Herring", note: "Draynor Village" },
+            { range: "20-99", method: "Fly Fishing (Trout & Salmon)", note: "Barbarian Village - pairs with Cooking" }
+        ],
+        "Cooking": [
+            { range: "1-40", method: "Cook whatever you catch", note: "Shrimp through Trout/Salmon as you level" },
+            { range: "40-99", method: "Lobsters", note: "Best F2P XP-to-burn ratio - Karamja Dock" }
+        ],
+        "Firemaking": [
+            { range: "1-99", method: "Burn logs matching your Woodcutting level", note: "Or buy logs and burn at a bank for faster levels without cutting" }
+        ],
+        "Smithing": [
+            { range: "1-29", method: "Bronze then Iron items", note: "The Knight's Sword quest jumps you straight to level 29" },
+            { range: "29-50", method: "Steel items", note: "Varrock Anvil" },
+            { range: "50-99", method: "Mithril or Adamant Platebodies", note: "Best F2P XP/bar past level 50" }
+        ],
+        "Crafting": [
+            { range: "1-20", method: "Leather armor (gloves to bodies)", note: "Bank Stand - cheap and simple" },
+            { range: "20-99", method: "Cut gems (Sapphire through Ruby)", note: "Bank Stand - XP scales with level" }
+        ],
+        "Runecraft": [
+            { range: "1-20", method: "Air Runes", note: "Slowest F2P skill overall - budget a lot of time" },
+            { range: "20-99", method: "Body Runes", note: "Best sustained F2P method, though still slow" }
+        ]
+    };
+
+    const multiskillCombos = [
+        { title: "Woodcutting + Firemaking", note: "Burn willow logs as you cut them at Draynor - trains both at once with zero extra travel." },
+        { title: "Fishing + Cooking", note: "Barbarian Village lets you fly-fish trout and salmon, light a fire, and cook your catch on the spot." },
+        { title: "Mining + Smithing", note: "Mine ore near Al Kharid or the Skeleton Mine above Edgeville, then smith bars at the nearby furnace and anvil." },
+        { title: "Mining + Magic", note: "Bring a fire staff and nature runes to Superheat Item your ore into bars right in the mine." },
+        { title: "Melee (Attack / Strength / Defence) + Hitpoints", note: "Hitpoints trains automatically from any combat XP - no extra effort needed." },
+        { title: "Ranged + Hitpoints", note: "The same passive Hitpoints bonus applies while training Ranged." },
+        { title: "Prayer + Combat", note: "Loot bones from whatever you're already killing for melee or Ranged XP, then bury them for essentially free Prayer levels." }
+    ];
+
+    function renderGuidesTab() {
+        const combosContainer = document.getElementById('combosContainer');
+        combosContainer.innerHTML = multiskillCombos.map(c => `
+            <div class="combo-item">
+                <div class="combo-item-title">⚡ ${c.title}</div>
+                <div class="combo-item-note">${c.note}</div>
+            </div>
+        `).join('');
+
+        const guidesContainer = document.getElementById('guidesContainer');
+        guidesContainer.innerHTML = Object.keys(skillGuides).map((skill, idx) => `
+            <div class="guide-card">
+                <div class="guide-card-header" onclick="toggleGuideCard(${idx})">
+                    <span class="guide-card-header-title">${skill}</span>
+                    <span class="guide-card-chevron" id="guideChevron-${idx}">▼</span>
+                </div>
+                <div class="guide-card-body" id="guideBody-${idx}">
+                    ${skillGuides[skill].map(b => `
+                        <div class="guide-bracket">
+                            <span class="guide-bracket-range">${b.range}</span>
+                            <span class="guide-bracket-info">
+                                <div class="guide-bracket-method">${b.method}</div>
+                                <div class="guide-bracket-note">${b.note}</div>
+                            </span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function toggleGuideCard(idx) {
+        document.getElementById('guideBody-' + idx).classList.toggle('open');
+        document.getElementById('guideChevron-' + idx).classList.toggle('open');
+    }
+
+    let guidesRendered = false;
+    function switchTab(tab) {
+        document.getElementById('calculatorTab').classList.toggle('active', tab === 'calculator');
+        document.getElementById('guidesTab').classList.toggle('active', tab === 'guides');
+        document.getElementById('tabBtnCalculator').classList.toggle('active', tab === 'calculator');
+        document.getElementById('tabBtnGuides').classList.toggle('active', tab === 'guides');
+        if (tab === 'guides' && !guidesRendered) {
+            renderGuidesTab();
+            guidesRendered = true;
         }
     }
 
