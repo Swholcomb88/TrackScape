@@ -12,7 +12,7 @@ TrackScape is a lightweight, mobile-optimized planning console built specificall
 - **Mobile-First UI:** Designed with vertical stacking and large touch targets to eliminate layout bugs on phones.
 
 ## 🚀 Live Demo
-*(Once you deploy to GitHub pages, put your link here: e.g., `https://[your-username].github.io/trackscape/`)*
+https://swholcomb88.github.io/TrackScape/
 
 ## 🛠️ Installation & Hosting
 
