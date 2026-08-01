@@ -47,6 +47,39 @@
         .combo-box { background: #18221b; border-left: 4px solid #4caf50; padding: 12px; border-radius: 0 8px 8px 0; font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px; }
         .combo-title { color: #4caf50; font-weight: bold; }
         #ocrStatus { font-size: 0.8rem; color: var(--accent); text-align: center; margin-top: -4px; }
+
+        .target-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            z-index: 20;
+            max-height: 240px;
+            overflow-y: auto;
+            background: #26262d;
+            border: 1px solid var(--border);
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+        }
+        .target-dropdown.open { display: block; }
+        .target-option {
+            padding: 12px;
+            font-size: 0.95rem;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+        }
+        .target-option:last-child { border-bottom: none; }
+        .target-option:active, .target-option.highlighted {
+            background: var(--accent-glow);
+        }
+        .target-option-empty {
+            padding: 12px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -105,10 +138,10 @@
             </div>
         </div>
 
-        <div class="input-group">
+        <div class="input-group" style="position: relative;">
             <label for="targetInput">Target Monster / Resource</label>
-            <input type="text" id="targetInput" list="targetOptions" placeholder="Search or scroll..." oninput="calculateResults()" onchange="calculateResults()">
-            <datalist id="targetOptions"></datalist>
+            <input type="text" id="targetInput" placeholder="Tap to browse or type to search..." autocomplete="off" oninput="renderTargetDropdown()" onfocus="renderTargetDropdown()">
+            <div id="targetDropdown" class="target-dropdown"></div>
         </div>
     </div>
 
@@ -156,6 +189,7 @@
         { name: "Guard", hp: 22, loc: "Varrock / Falador" },
         { name: "Jail Guard", hp: 32, loc: "Draynor" },
         { name: "Barbarian", hp: 24, loc: "Barbarian Village" },
+        { name: "Gunthor the Brave", hp: 35, loc: "The Long Hall, Barbarian Village" },
         { name: "Dark Wizard", hp: 12, loc: "Varrock South" },
         { name: "Dark Wizard (Lvl 20)", hp: 24, loc: "Varrock Stone Circle" },
         { name: "Skeleton (Lvl 21)", hp: 24, loc: "Sewers / Dungeons" },
@@ -180,7 +214,8 @@
         { name: "Ogress Shaman", hp: 82, loc: "Corsair Cove Dungeon" },
         { name: "Elvarg (Quest Boss)", hp: 80, loc: "Crandor" },
         { name: "Bryophyta (Boss)", hp: 115, loc: "Varrock Sewers" },
-        { name: "Obor (Boss)", hp: 120, loc: "Edgeville Dungeon" }
+        { name: "Obor (Boss)", hp: 120, loc: "Edgeville Dungeon" },
+        { name: "Brutus (Boss)", hp: 58, loc: "Lumbridge Cow Field (after Ides of Milk quest)" }
     ];
 
     const db = {
@@ -269,28 +304,242 @@
         ]}
     };
 
+    // Standard OSRS stats tab grid order (left-to-right, top-to-bottom).
+    // This layout is fixed regardless of account levels, so we map by
+    // GEOMETRIC POSITION instead of searching for skill-name text (the
+    // real skill tab has no text labels at all - just icons).
+    // Sailing was added as the 24th skill on 19 Nov 2025, appearing last.
+    const OSRS_SKILL_GRID_ORDER = [
+        "Attack", "Hitpoints", "Mining",
+        "Strength", "Agility", "Smithing",
+        "Defence", "Herblore", "Fishing",
+        "Ranged", "Thieving", "Cooking",
+        "Prayer", "Crafting", "Firemaking",
+        "Magic", "Fletching", "Woodcutting",
+        "Runecraft", "Slayer", "Farming",
+        "Construction", "Hunter", "Sailing"
+    ];
+
+    let detectedLevels = {};
+
+    function isLevelText(r, g, b) {
+        // OSRS stat numbers render in a bright yellow/gold color, distinct
+        // from the gray/brown icons and backgrounds around them.
+        return r > 140 && g > 110 && b < 130 && (r - b) > 50 && Math.abs(r - g) < 30;
+    }
+
+    // Isolate the level numbers from everything else (icons, borders,
+    // backgrounds) by recoloring to pure black-on-white, and upscale so
+    // the small pixel font is easier for Tesseract to resolve.
+    function preprocessImageForOcr(file) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                const scale = 3;
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width * scale;
+                canvas.height = img.height * scale;
+                const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const d = imgData.data;
+                for (let i = 0; i < d.length; i += 4) {
+                    if (isLevelText(d[i], d[i + 1], d[i + 2])) {
+                        d[i] = 0; d[i + 1] = 0; d[i + 2] = 0;
+                    } else {
+                        d[i] = 255; d[i + 1] = 255; d[i + 2] = 255;
+                    }
+                }
+                ctx.putImageData(imgData, 0, 0);
+                canvas.toBlob(blob => blob
+                    ? resolve({ blob, width: canvas.width })
+                    : reject(new Error("Canvas export failed")), 'image/png');
+            };
+            img.onerror = () => reject(new Error("Image load failed"));
+            img.src = URL.createObjectURL(file);
+        });
+    }
+
+    async function handleImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const status = document.getElementById('ocrStatus');
+        status.innerText = "Preprocessing screenshot...";
+
+        let worker;
+        try {
+            const { blob, width } = await preprocessImageForOcr(file);
+            status.innerText = "Scanning screenshot for stats...";
+
+            worker = await Tesseract.createWorker('eng');
+            await worker.setParameters({
+                tessedit_char_whitelist: '0123456789',
+                tessedit_pageseg_mode: '11' // sparse text - scattered numbers, not paragraphs
+            });
+            const { data } = await worker.recognize(blob);
+
+            parseGridOcrWords(data.words, width);
+        } catch (err) {
+            console.error(err);
+            status.innerText = "Error scanning image. Try manual entry.";
+        } finally {
+            if (worker) await worker.terminate();
+        }
+    }
+
+    // Maps recognized numbers to skills by their GEOMETRIC POSITION in the
+    // fixed 3-column grid, rather than trying to read a skill name that
+    // doesn't exist in the screenshot. Each cell shows two stacked numbers
+    // (current/max level); when both are readable we require them to agree
+    // before trusting the value, since a wrong level is worse than a
+    // missing one for planning purposes. Very low levels (1-9) often can't
+    // be read at all from a compressed screenshot - that's an OCR
+    // resolution limit, not a bug, and those need manual entry.
+    function parseGridOcrWords(words, imgWidth) {
+        const status = document.getElementById('ocrStatus');
+        const numberWords = (words || [])
+            .filter(w => /^\d+$/.test(w.text.trim()) && (w.bbox.y1 - w.bbox.y0) < imgWidth * 0.15)
+            .map(w => ({
+                text: w.text.trim(),
+                cx: (w.bbox.x0 + w.bbox.x1) / 2,
+                cy: (w.bbox.y0 + w.bbox.y1) / 2
+            }));
+
+        if (numberWords.length === 0) {
+            status.innerText = "Could not read any levels from this screenshot. Please select manually.";
+            return;
+        }
+
+        // Cluster into rows (merges each cell's stacked current/max numbers)
+        const sortedByY = [...numberWords].sort((a, b) => a.cy - b.cy);
+        const rowClusters = [];
+        const withinRowThreshold = imgWidth * 0.08;
+        for (const w of sortedByY) {
+            let cluster = rowClusters.find(c => Math.abs(c.centerY - w.cy) < withinRowThreshold);
+            if (!cluster) {
+                cluster = { centerY: w.cy, words: [] };
+                rowClusters.push(cluster);
+            }
+            cluster.words.push(w);
+            cluster.centerY = cluster.words.reduce((s, x) => s + x.cy, 0) / cluster.words.length;
+        }
+        rowClusters.sort((a, b) => a.centerY - b.centerY);
+
+        // Canonical row spacing = smallest gap between adjacent row clusters
+        // (larger gaps mean a row in between had nothing readable in it)
+        const gaps = [];
+        for (let i = 1; i < rowClusters.length; i++) gaps.push(rowClusters[i].centerY - rowClusters[i - 1].centerY);
+        gaps.sort((a, b) => a - b);
+        const rowStep = gaps.length ? gaps[0] : imgWidth * 0.44;
+        const anchorY = rowClusters[0].centerY;
+
+        const cellReadings = {};
+        for (const cluster of rowClusters) {
+            const rowIdx = Math.round((cluster.centerY - anchorY) / rowStep);
+            if (rowIdx < 0 || rowIdx > 7) continue;
+            for (const w of cluster.words) {
+                const col = w.cx < imgWidth / 3 ? 0 : (w.cx < 2 * imgWidth / 3 ? 1 : 2);
+                const skillIdx = rowIdx * 3 + col;
+                if (skillIdx >= OSRS_SKILL_GRID_ORDER.length) continue;
+                const skill = OSRS_SKILL_GRID_ORDER[skillIdx];
+                const level = parseInt(w.text, 10);
+                if (level < 1 || level > 99) continue;
+                (cellReadings[skill] = cellReadings[skill] || []).push(level);
+            }
+        }
+
+        detectedLevels = {};
+        for (const skill in cellReadings) {
+            const readings = cellReadings[skill];
+            const allAgree = readings.every(r => r === readings[0]);
+            if (allAgree) detectedLevels[skill] = readings[0];
+        }
+
+        const foundCount = Object.keys(detectedLevels).length;
+        if (foundCount > 0) {
+            status.innerText = `Detected ${foundCount} of 24 skill levels. Very low levels (1-9) often can't be auto-read - switch skills below to auto-fill or enter those manually.`;
+            applyDetectedLevel();
+        } else {
+            status.innerText = "Could not automatically isolate stats. Please select manually.";
+        }
+    }
+
+    function applyDetectedLevel() {
+        const skill = document.getElementById('skillSelect').value;
+        if (detectedLevels[skill] != null) {
+            const lvl = detectedLevels[skill];
+            document.getElementById('currLevel').value = lvl;
+            document.getElementById('targetLevel').value = Math.min(99, lvl + 1);
+        }
+    }
+
     function updateConsole() {
         const skill = document.getElementById('skillSelect').value;
         const targetInput = document.getElementById('targetInput');
-        const datalist = document.getElementById('targetOptions');
-        
-        datalist.innerHTML = '';
+
         const data = db[skill] || db["Ranged"];
-        
-        // Populate the entire list into the datalist for searching/scrolling
-        data.items.forEach(item => {
-            let opt = document.createElement('option');
-            opt.value = item.name;
-            datalist.appendChild(opt);
-        });
 
         // Set a default value if input is empty or invalid for the new skill
         if (!targetInput.value || !data.items.some(i => i.name.toLowerCase() === targetInput.value.toLowerCase())) {
             targetInput.value = data.items[0].name;
         }
 
+        applyDetectedLevel();
         calculateResults();
     }
+
+    // Custom searchable dropdown - replaces the native <datalist>, which
+    // mobile browsers and installed-PWA WebViews render inconsistently
+    // (often not showing any tappable suggestion list at all).
+    function renderTargetDropdown() {
+        const skill = document.getElementById('skillSelect').value;
+        const data = db[skill] || db["Ranged"];
+        const query = document.getElementById('targetInput').value.trim().toLowerCase();
+        const dropdown = document.getElementById('targetDropdown');
+
+        const matches = query
+            ? data.items.filter(i => i.name.toLowerCase().includes(query))
+            : data.items;
+
+        dropdown.innerHTML = '';
+        if (matches.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'target-option-empty';
+            empty.innerText = 'No matches - try a different search';
+            dropdown.appendChild(empty);
+        } else {
+            matches.forEach(item => {
+                const opt = document.createElement('div');
+                opt.className = 'target-option';
+                opt.innerText = item.name;
+                // mousedown (not click) fires before the input's blur event,
+                // so the selection registers before the dropdown closes
+                opt.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    document.getElementById('targetInput').value = item.name;
+                    closeTargetDropdown();
+                    calculateResults();
+                });
+                dropdown.appendChild(opt);
+            });
+        }
+        dropdown.classList.add('open');
+    }
+
+    function closeTargetDropdown() {
+        document.getElementById('targetDropdown').classList.remove('open');
+    }
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.input-group')) closeTargetDropdown();
+    });
+    document.getElementById('targetInput')?.addEventListener('blur', () => {
+        // Small delay so a tap on a dropdown option still registers first
+        setTimeout(closeTargetDropdown, 150);
+    });
 
     function calculateResults() {
         const skill = document.getElementById('skillSelect').value;
@@ -336,58 +585,6 @@
             comboText.innerText = "Pair with Magic: Bring a Fire Staff and Nature runes to superheat your iron/gold ore right inside the mine.";
         } else {
             comboBox.style.display = "none";
-        }
-    }
-
-    function handleImageUpload(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-
-        const status = document.getElementById('ocrStatus');
-        status.innerText = "Scanning screenshot for stats...";
-
-        Tesseract.recognize(
-            file,
-            'eng',
-            { logger: m => console.log(m.status + ": " + Math.round(m.progress * 100) + "%") }
-        ).then(({ data: { text } }) => {
-            status.innerText = "Scan complete! Parsing levels...";
-            parseOcrText(text);
-        }).catch(err => {
-            console.error(err);
-            status.innerText = "Error scanning image. Try manual entry.";
-        });
-    }
-
-    function parseOcrText(text) {
-        const lines = text.split('\n');
-        let foundLevel = null;
-
-        for (let line of lines) {
-            for (let skill of Object.keys(db)) {
-                if (line.toLowerCase().includes(skill.toLowerCase())) {
-                    const match = line.match(/\d+/);
-                    if (match) {
-                        const lvl = parseInt(match[0]);
-                        if (lvl >= 1 && lvl <= 99) {
-                            document.getElementById('skillSelect').value = skill;
-                            document.getElementById('currLevel').value = lvl;
-                            if (lvl < 99) document.getElementById('targetLevel').value = lvl + 1;
-                            foundLevel = skill;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (foundLevel) break;
-        }
-
-        const status = document.getElementById('ocrStatus');
-        if (foundLevel) {
-            status.innerText = `Successfully loaded ${foundLevel} level!`;
-            updateConsole();
-        } else {
-            status.innerText = "Could not automatically isolate stats. Please select manually.";
         }
     }
 
