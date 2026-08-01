@@ -217,7 +217,7 @@
 
         <div class="input-group" style="position: relative;">
             <label for="targetInput">Target Monster / Resource</label>
-            <input type="text" id="targetInput" placeholder="Tap to browse or type to search..." autocomplete="off" oninput="renderTargetDropdown()" onfocus="renderTargetDropdown()">
+            <input type="text" id="targetInput" placeholder="Tap to browse or type to search..." autocomplete="off" oninput="targetManuallySet = true; renderTargetDropdown();" onfocus="renderTargetDropdown()">
             <div id="targetDropdown" class="target-dropdown"></div>
         </div>
     </div>
@@ -292,6 +292,7 @@
         { name: "Zombie (Lvl 13)", hp: 22, loc: "Draynor Sewers" },
         { name: "Zombie (Lvl 24)", hp: 30, loc: "Wilderness / Sewers" },
         { name: "Flesh Crawler", hp: 25, loc: "Stronghold of Security" },
+        { name: "Giant Spider", hp: 50, loc: "Stronghold of Security (Pit of Pestilence)" },
         { name: "Hill Giant", hp: 35, loc: "Edgeville Dungeon" },
         { name: "Hobgoblin", hp: 29, loc: "Edgeville Dungeon" },
         { name: "Deadly Red Spider", hp: 35, loc: "Varrock Sewers" },
@@ -324,6 +325,7 @@
         "Magic": { type: "resource", unit: "Casts / Items Needed", items: [
             { name: "Wind / Water Strike", xp: 11.5, loc: "Lumbridge Safesspots" },
             { name: "Fire Strike", xp: 33, loc: "Safe-spotting" },
+            { name: "Low Level Alchemy", xp: 31, loc: "Anywhere (Bank)" },
             { name: "Superheat Item (Iron/Gold)", xp: 53, loc: "Mining Sites (Combo)" },
             { name: "High Level Alchemy", xp: 65, loc: "Anywhere (Bank / Questing)" }
         ]},
@@ -670,6 +672,7 @@
         const targetInput = document.getElementById('targetInput');
 
         const data = db[skill] || db["Ranged"];
+        targetManuallySet = false;
 
         // Set a default value if input is empty or invalid for the new skill
         if (!targetInput.value || !data.items.some(i => i.name.toLowerCase() === targetInput.value.toLowerCase())) {
@@ -709,6 +712,7 @@
                 opt.addEventListener('mousedown', (e) => {
                     e.preventDefault();
                     document.getElementById('targetInput').value = item.name;
+                    targetManuallySet = true;
                     closeTargetDropdown();
                     calculateResults();
                 });
@@ -730,11 +734,36 @@
         setTimeout(closeTargetDropdown, 150);
     });
 
+    // Tracks whether the user has manually picked a target monster/resource
+    // this session. While false, the calculator auto-fills the target from
+    // the Skill Guide's recommendation for the current level; once the user
+    // picks something themselves, their choice is left alone until they
+    // switch skills.
+    let targetManuallySet = false;
+
+    function getRecommendedTarget(skill, level) {
+        const guide = skillGuides[skill];
+        if (!guide) return null;
+        for (const bracket of guide) {
+            if (!bracket.target) continue; // alt/no-single-target brackets are skipped
+            const m = bracket.range.match(/^(\d+)-(\d+)/);
+            if (!m) continue;
+            const lo = parseInt(m[1], 10), hi = parseInt(m[2], 10);
+            if (level >= lo && level <= hi) return bracket.target;
+        }
+        return null;
+    }
+
     function calculateResults() {
         const skill = document.getElementById('skillSelect').value;
         const curr = parseInt(document.getElementById('currLevel').value) || 1;
         let target = parseInt(document.getElementById('targetLevel').value) || 2;
         if (target <= curr) target = curr + 1;
+
+        if (!targetManuallySet) {
+            const recommended = getRecommendedTarget(skill, curr);
+            if (recommended) document.getElementById('targetInput').value = recommended;
+        }
 
         const currXp = getLevelXP(curr);
         const targetXp = getLevelXP(target);
@@ -784,76 +813,76 @@
     // (passively / via bone-burying) rather than through level ranges.
     const skillGuides = {
         "Attack": [
-            { range: "1-20", method: "Chickens or Cows", note: "Lumbridge farms - safe, low risk" },
-            { range: "20-40", method: "Barbarians or Hill Giants", note: "Barbarian Village / Edgeville Dungeon" },
-            { range: "40-60", method: "Moss Giants", note: "Varrock Sewers or Crandor - good drops" },
-            { range: "60-99", method: "Ankou or Greater Demons", note: "Bring food and a solid weapon" }
+            { range: "1-20", method: "Chickens or Cows", note: "Lumbridge farms - safe, low risk", target: "Cow / Cow Calf" },
+            { range: "20-56", method: "Giant Frogs", note: "Lumbridge Swamp - high HP, low Defence, drops Big Bones for Prayer", target: "Giant Frog" },
+            { range: "56-99", method: "Flesh Crawlers, then Giant Spiders", note: "Stronghold of Security - both stay aggressive for 10-min AFK stretches", target: "Giant Spider" },
+            { range: "20-99 (alt)", method: "Brutus", note: "F2P boss with a 2x XP multiplier - a strong option throughout this whole range" }
         ],
         "Strength": [
-            { range: "1-20", method: "Chickens or Cows", note: "Lumbridge farms - safe, low risk" },
-            { range: "20-40", method: "Barbarians or Hill Giants", note: "Barbarian Village / Edgeville Dungeon" },
-            { range: "40-60", method: "Moss Giants", note: "Varrock Sewers or Crandor - good drops" },
-            { range: "60-99", method: "Ankou or Greater Demons", note: "Higher hits, more consistent XP" }
+            { range: "1-20", method: "Chickens or Cows", note: "Lumbridge farms - safe, low risk", target: "Cow / Cow Calf" },
+            { range: "20-56", method: "Giant Frogs", note: "Lumbridge Swamp - high HP, low Defence, drops Big Bones for Prayer", target: "Giant Frog" },
+            { range: "56-99", method: "Flesh Crawlers, then Giant Spiders", note: "Stronghold of Security - both stay aggressive for 10-min AFK stretches", target: "Giant Spider" },
+            { range: "20-99 (alt)", method: "Brutus", note: "F2P boss with a 2x XP multiplier - a strong option throughout this whole range" }
         ],
         "Defence": [
-            { range: "1-20", method: "Chickens or Cows", note: "Use the best attack-style weapon you own" },
-            { range: "20-40", method: "Barbarians or Hill Giants", note: "Barbarian Village / Edgeville Dungeon" },
-            { range: "40-60", method: "Moss Giants", note: "Varrock Sewers or Crandor" },
-            { range: "60-99", method: "Ankou or Greater Demons", note: "Prioritize survivability gear" }
+            { range: "1-20", method: "Chickens or Cows", note: "Use the best attack-style weapon you own", target: "Cow / Cow Calf" },
+            { range: "20-56", method: "Giant Frogs", note: "Lumbridge Swamp - high HP, low Defence, drops Big Bones for Prayer", target: "Giant Frog" },
+            { range: "56-99", method: "Flesh Crawlers, then Giant Spiders", note: "Stronghold of Security - bring 40-60+ Defence before Flesh Crawlers, they hit fast", target: "Giant Spider" },
+            { range: "20-99 (alt)", method: "Brutus", note: "F2P boss with a 2x XP multiplier - a strong option throughout this whole range" }
         ],
         "Ranged": [
-            { range: "1-20", method: "Seagulls, Cows, Chickens", note: "Port Sarim / Lumbridge - low Defence targets" },
-            { range: "20-40", method: "Barbarians (safespotted)", note: "Shoot over the tables in Barbarian Village" },
-            { range: "40-60", method: "Hill Giants or Moss Giants", note: "Safespot where the terrain allows" },
-            { range: "60-99", method: "Ankou or Greater Demons", note: "Stock up on arrows before a trip" }
+            { range: "1-20", method: "Seagulls, Cows, Goblins, Chickens", note: "Port Sarim / Lumbridge - lowest-Defence targets in the game", target: "Seagull" },
+            { range: "21-56", method: "Barbarians, then Giant Frogs", note: "Barbarian Village, then Lumbridge Swamp - Giant Frogs are the fastest XP in this range", target: "Giant Frog" },
+            { range: "57-99", method: "Moss Giants", note: "Varrock Sewers or Crandor - highest F2P Ranged XP; you rarely miss past level 57", target: "Moss Giant" },
+            { range: "20-99 (alt)", method: "Brutus", note: "F2P boss with a 2x XP multiplier - a strong option throughout this whole range" }
         ],
         "Magic": [
-            { range: "1-9", method: "Wind Strike on Chickens/Cows", note: "Cheapest combat spell - Mind + Air runes" },
-            { range: "9-22", method: "Keep casting Strike spells", note: "Or start High Alching cheap items for profit" },
-            { range: "22-35", method: "Fire Strike", note: "Better XP once you can afford the runes" },
-            { range: "35-55", method: "Superheat Item combo", note: "Pairs with Mining - see synergies below" },
-            { range: "55-99", method: "High Level Alchemy", note: "Semi-passive XP while making coin on the side" }
+            { range: "1-9", method: "Wind Strike on Chickens/Cows", note: "Cheapest combat spell - Mind + Air runes", target: "Wind / Water Strike" },
+            { range: "9-21", method: "Water Strike, then Earth Strike", note: "Keep casting Strike spells as they unlock", target: "Wind / Water Strike" },
+            { range: "21-43", method: "Low Level Alchemy", note: "Cheap, semi-passive XP with minimal loss on low-value items", target: "Low Level Alchemy" },
+            { range: "43-55", method: "Superheat Item combo", note: "Unlocks at level 43 - pairs with Mining, see synergies below", target: "Superheat Item (Iron/Gold)" },
+            { range: "55-99", method: "High Level Alchemy", note: "Semi-passive XP while making coin on the side", target: "High Level Alchemy" }
         ],
         "Prayer": [
-            { range: "1-99", method: "Bury Big Bones", note: "Best F2P XP/bone - drops from Hill Giants and Moss Giants" }
+            { range: "1-99", method: "Bury Big Bones", note: "Best F2P XP/bone - drops from Giant Frogs, Hill Giants, and Moss Giants", target: "Big Bones" }
         ],
         "Hitpoints": [
             { range: "1-99", method: "Trains automatically", note: "Any combat XP you earn (melee, Ranged, or Magic) also trains Hitpoints" }
         ],
         "Woodcutting": [
-            { range: "1-15", method: "Normal Trees", note: "Lumbridge or Varrock" },
-            { range: "15-30", method: "Oak Trees", note: "Draynor Village" },
-            { range: "30-99", method: "Willow Trees", note: "Draynor - fastest F2P XP all the way to 99, and pairs with Firemaking. Yew (60+) gives more XP per log but chops slower, so it's a GP-profit pick, not a faster-XP one." }
+            { range: "1-15", method: "Normal Trees", note: "Lumbridge or Varrock", target: "Normal Trees" },
+            { range: "15-30", method: "Oak Trees", note: "Draynor Village", target: "Oak Trees" },
+            { range: "30-99", method: "Willow Trees", note: "Draynor - fastest F2P XP all the way to 99, and pairs with Firemaking. Yew (60+) gives more XP per log but chops slower, so it's a GP-profit pick, not a faster-XP one.", target: "Willow Trees" }
         ],
         "Mining": [
-            { range: "1-15", method: "Copper & Tin Ore", note: "Lumbridge Swamp or Al Kharid" },
-            { range: "15-30", method: "Iron Ore (power-mine)", note: "Al Kharid 3-rock triangle" },
-            { range: "30-99", method: "Coal, or continue Iron", note: "Mining Guild - F2P has no ore past this tier" }
+            { range: "1-15", method: "Copper & Tin Ore", note: "Lumbridge Swamp or Al Kharid", target: "Copper & Tin Ore" },
+            { range: "15-99", method: "Iron Ore (power-mine)", note: "Al Kharid 3-rock triangle - fastest F2P XP all the way to 99. Coal gives more XP/hr on paper but mainly matters as Smithing supply, not a speed pick.", target: "Iron Ore (Power-mine)" }
         ],
         "Fishing": [
-            { range: "1-5", method: "Shrimp / Anchovies", note: "Lumbridge Swamp" },
-            { range: "5-20", method: "Sardines / Herring", note: "Draynor Village" },
-            { range: "20-99", method: "Fly Fishing (Trout & Salmon)", note: "Barbarian Village - pairs with Cooking" }
+            { range: "1-5", method: "Shrimp / Anchovies", note: "Lumbridge Swamp", target: "Netting Shrimp / Anchovies" },
+            { range: "5-20", method: "Sardines / Herring", note: "Draynor Village", target: "Sardines / Herring" },
+            { range: "20-99", method: "Fly Fishing (Trout & Salmon)", note: "Barbarian Village - pairs with Cooking", target: "Fly Fishing (Trout & Salmon)" }
         ],
         "Cooking": [
-            { range: "1-35", method: "Cook whatever you catch", note: "Shrimp through Trout/Salmon as you level" },
-            { range: "35-99", method: "Jugs of Wine", note: "Fastest F2P Cooking XP by far (~300-490k XP/hr at a bank) - not a money method, grapes and jugs cost GP. Lobsters are a slower-XP alternative if you'd rather end up with food than spend coin." }
+            { range: "1-35", method: "Cook whatever you catch", note: "Shrimp through Trout/Salmon as you level", target: "Trout / Salmon" },
+            { range: "35-99", method: "Jugs of Wine", note: "Fastest F2P Cooking XP by far (~300-490k XP/hr at a bank) - not a money method, grapes and jugs cost GP. Lobsters are a slower-XP alternative if you'd rather end up with food than spend coin.", target: "Jugs of Wine" }
         ],
         "Firemaking": [
-            { range: "1-99", method: "Burn logs matching your Woodcutting level", note: "Or buy logs and burn at a bank for faster levels without cutting" }
+            { range: "1-99", method: "Burn logs matching your Woodcutting level", note: "Or buy logs and burn at a bank for faster levels without cutting", target: "Willow Logs" }
         ],
         "Smithing": [
-            { range: "1-29", method: "Bronze then Iron items", note: "The Knight's Sword quest jumps you straight to level 29" },
-            { range: "29-50", method: "Steel items", note: "Varrock Anvil" },
-            { range: "50-99", method: "Mithril or Adamant Platebodies", note: "Best F2P XP/bar past level 50" }
+            { range: "1-33", method: "Bronze items", note: "The Knight's Sword quest jumps you straight to level 29; Bronze Platebodies to 33", target: "Bronze Platebodies" },
+            { range: "33-68", method: "Iron, then Steel items", note: "Varrock Anvil - Iron Platebodies at 33, Steel from 48", target: "Iron Platebodies" },
+            { range: "68-99", method: "Adamant Platebodies", note: "Fastest and cheapest F2P route to 99 - roughly 215k XP/hr with energy potions", target: "Adamant Platebodies" }
         ],
         "Crafting": [
-            { range: "1-20", method: "Leather armor (gloves to bodies)", note: "Bank Stand - cheap and simple" },
-            { range: "20-99", method: "Cut gems (Sapphire through Ruby)", note: "Bank Stand - XP scales with level" }
+            { range: "1-20", method: "Leather armor (gloves to bodies)", note: "Bank Stand - cheap and simple", target: "Leather Vambraces / Chaps" },
+            { range: "20-99", method: "Cut gems (Sapphire through Ruby)", note: "Bank Stand - XP scales with level", target: "Cutting Sapphires" }
         ],
         "Runecraft": [
-            { range: "1-20", method: "Air Runes", note: "Slowest F2P skill overall - budget a lot of time" },
-            { range: "20-99", method: "Body Runes", note: "Best sustained F2P method, though still slow" }
+            { range: "1-9", method: "Air Runes", note: "Falador - the only option until level 9", target: "Air Runes" },
+            { range: "9-20", method: "Earth Runes", note: "Varrock - better XP/hr than Air, and than Fire (unlocks at 14) too, due to shorter bank trips", target: "Earth Runes" },
+            { range: "20-99", method: "Body Runes", note: "Best sustained F2P XP/GP - highest-level rune F2P players can craft", target: "Body Runes" }
         ]
     };
 
