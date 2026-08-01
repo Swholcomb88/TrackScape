@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrackScape - OSRS F2P Master Console</title>
+    <link rel="manifest" href="./manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+    <link rel="apple-touch-icon" href="./icons/icon-192.png">
+    <meta name="theme-color" content="#121214">
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" integrity="sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F" crossorigin="anonymous"></script>
+    <style>
+        :root {
+            --bg-color: #121214;
+            --card-bg: #1c1c21;
+            --text-main: #f4f4f6;
+            --text-muted: #9ba1a6;
+            --accent: #d4af37;
+            --accent-glow: rgba(212, 175, 55, 0.2);
+            --border: #2e2e38;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: var(--bg-color); color: var(--text-main); padding: 16px; display: flex; justify-content: center; }
+        .container { width: 100%; max-width: 500px; display: flex; flex-direction: column; gap: 16px; }
+        header { text-align: center; padding: 10px 0; }
+        header h1 { color: var(--accent); font-size: 1.8rem; letter-spacing: 1px; }
+        header p { color: var(--text-muted); font-size: 0.85rem; }
+        
+        .card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        
+        .input-group { display: flex; flex-direction: column; gap: 6px; }
+        label { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        select, input, button { background: #26262d; border: 1px solid var(--border); color: var(--text-main); padding: 12px; border-radius: 8px; font-size: 1rem; width: 100%; outline: none; }
+        select:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+        
+        .btn-upload { background-color: #2b2b36; border: 1px dashed var(--accent); color: var(--accent); font-weight: bold; cursor: pointer; text-align: center; transition: background 0.2s; }
+        .btn-upload:hover { background-color: var(--accent-glow); }
+
+        .row { display: flex; gap: 10px; }
+        .row .input-group { flex: 1; }
+
+        .results-box { background: #151518; border-left: 4px solid var(--accent); padding: 14px; border-radius: 0 8px 8px 0; display: flex; flex-direction: column; gap: 6px; }
+        .results-title { font-size: 0.9rem; color: var(--accent); font-weight: bold; text-transform: uppercase; }
+        .stat-line { display: flex; justify-content: space-between; font-size: 0.95rem; }
+        .stat-value { font-weight: bold; color: #fff; }
+
+        .combo-box { background: #18221b; border-left: 4px solid #4caf50; padding: 12px; border-radius: 0 8px 8px 0; font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px; }
+        .combo-title { color: #4caf50; font-weight: bold; }
+        #ocrStatus { font-size: 0.8rem; color: var(--accent); text-align: center; margin-top: -4px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>TrackScape</h1>
+        <p>OSRS F2P Master Leveling & Economy Console</p>
+    </header>
+
+    <div class="card">
+        <div class="input-group">
+            <label>Auto-Detect Stats via Screenshot</label>
+            <label for="screenshotInput" class="btn-upload" id="uploadLabel">📷 Upload Stats Screenshot</label>
+            <input type="file" id="screenshotInput" accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
+        </div>
+        <div id="ocrStatus"></div>
+    </div>
+
+    <div class="card">
+        <div class="input-group">
+            <label for="skillSelect">Select Skill</label>
+            <select id="skillSelect" onchange="updateConsole()">
+                <optgroup label="Combat">
+                    <option value="Attack">Attack</option>
+                    <option value="Strength">Strength</option>
+                    <option value="Defence">Defence</option>
+                    <option value="Ranged" selected>Ranged</option>
+                    <option value="Magic">Magic</option>
+                    <option value="Prayer">Prayer</option>
+                    <option value="Hitpoints">Hitpoints</option>
+                </optgroup>
+                <optgroup label="Gathering">
+                    <option value="Woodcutting">Woodcutting</option>
+                    <option value="Mining">Mining</option>
+                    <option value="Fishing">Fishing</option>
+                </optgroup>
+                <optgroup label="Artisan / Processing">
+                    <option value="Cooking">Cooking</option>
+                    <option value="Firemaking">Firemaking</option>
+                    <option value="Smithing">Smithing</option>
+                    <option value="Crafting">Crafting</option>
+                    <option value="Runecraft">Runecraft</option>
+                </optgroup>
+            </select>
+        </div>
+
+        <div class="row">
+            <div class="input-group">
+                <label for="currLevel">Current Level</label>
+                <input type="number" id="currLevel" value="8" min="1" max="98" oninput="calculateResults()">
+            </div>
+            <div class="input-group">
+                <label for="targetLevel">Target Level</label>
+                <input type="number" id="targetLevel" value="25" min="2" max="99" oninput="calculateResults()">
+            </div>
+        </div>
+
+        <div class="input-group">
+            <label for="targetInput">Target Monster / Resource</label>
+            <input type="text" id="targetInput" list="targetOptions" placeholder="Search or scroll..." oninput="calculateResults()" onchange="calculateResults()">
+            <datalist id="targetOptions"></datalist>
+        </div>
+    </div>
+
+    <div class="card" id="outputCard">
+        <div class="results-box">
+            <div class="results-title">Training Objective</div>
+            <div class="stat-line"><span>Location / Method:</span> <span class="stat-value" id="outLocation">Lumbridge Farms</span></div>
+            <div class="stat-line"><span>Total XP Needed:</span> <span class="stat-value" id="outXp">0 XP</span></div>
+            <div class="stat-line"><span id="actionLabel">Total Actions:</span> <span class="stat-value" id="outActions">0</span></div>
+        </div>
+        
+        <div class="combo-box" id="comboBox" style="display: none;">
+            <div class="combo-title">⚡ Multi-Skilling Synergy Available</div>
+            <div id="comboText"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function getLevelXP(level) {
+        let points = 0;
+        for (let lvl = 1; lvl < level; lvl++) {
+            points += Math.floor(lvl + 300 * Math.pow(2, lvl / 7.0));
+        }
+        return Math.floor(points / 4);
+    }
+
+    // The Massive F2P Bestiary Master List
+    const f2pMonsters = [
+        { name: "Duck / Duckling", hp: 3, loc: "Lumbridge River" },
+        { name: "Chicken", hp: 3, loc: "Lumbridge Farms" },
+        { name: "Rat", hp: 2, loc: "Lumbridge / Varrock" },
+        { name: "Giant Rat", hp: 5, loc: "Lumbridge Swamp" },
+        { name: "Spider", hp: 2, loc: "Lumbridge" },
+        { name: "Man / Woman", hp: 7, loc: "Lumbridge / Edgeville" },
+        { name: "Goblin", hp: 5, loc: "Lumbridge / Goblin Village" },
+        { name: "Cow / Cow Calf", hp: 8, loc: "Lumbridge Farms" },
+        { name: "Seagull", hp: 10, loc: "Port Sarim" },
+        { name: "Zombie rat", hp: 5, loc: "Sewers" },
+        { name: "Minotaur", hp: 10, loc: "Stronghold of Security" },
+        { name: "Minotaur (Lvl 27)", hp: 22, loc: "Stronghold of Security" },
+        { name: "Big Frog", hp: 18, loc: "Lumbridge Swamp" },
+        { name: "Giant Frog", hp: 23, loc: "Lumbridge Swamp" },
+        { name: "Thief", hp: 17, loc: "Varrock" },
+        { name: "Guard", hp: 22, loc: "Varrock / Falador" },
+        { name: "Jail Guard", hp: 32, loc: "Draynor" },
+        { name: "Barbarian", hp: 24, loc: "Barbarian Village" },
+        { name: "Dark Wizard", hp: 12, loc: "Varrock South" },
+        { name: "Dark Wizard (Lvl 20)", hp: 24, loc: "Varrock Stone Circle" },
+        { name: "Skeleton (Lvl 21)", hp: 24, loc: "Sewers / Dungeons" },
+        { name: "Zombie (Lvl 13)", hp: 22, loc: "Draynor Sewers" },
+        { name: "Zombie (Lvl 24)", hp: 30, loc: "Wilderness / Sewers" },
+        { name: "Flesh Crawler", hp: 25, loc: "Stronghold of Security" },
+        { name: "Hill Giant", hp: 35, loc: "Edgeville Dungeon" },
+        { name: "Hobgoblin", hp: 29, loc: "Edgeville Dungeon" },
+        { name: "Deadly Red Spider", hp: 35, loc: "Varrock Sewers" },
+        { name: "Black Knight", hp: 42, loc: "Black Knights' Fortress" },
+        { name: "White Knight", hp: 52, loc: "Falador Castle" },
+        { name: "Moss Giant", hp: 60, loc: "Varrock Sewers / Crandor" },
+        { name: "Ice Warrior", hp: 59, loc: "Asgarnian Ice Dungeon" },
+        { name: "Ice Giant", hp: 70, loc: "Asgarnian Ice Dungeon" },
+        { name: "Catablepon", hp: 40, loc: "Stronghold of Security" },
+        { name: "Ankou (Lvl 75)", hp: 60, loc: "Stronghold of Security" },
+        { name: "Ankou (Lvl 82)", hp: 65, loc: "Stronghold of Security" },
+        { name: "Ghost", hp: 15, loc: "Taverley Dungeon" },
+        { name: "Lesser Demon", hp: 79, loc: "Karamja Volcano / Wizard Tower" },
+        { name: "Greater Demon", hp: 87, loc: "Demonic Ruins" },
+        { name: "Ogress Warrior", hp: 82, loc: "Corsair Cove Dungeon" },
+        { name: "Ogress Shaman", hp: 82, loc: "Corsair Cove Dungeon" },
+        { name: "Elvarg (Quest Boss)", hp: 80, loc: "Crandor" },
+        { name: "Bryophyta (Boss)", hp: 115, loc: "Varrock Sewers" },
+        { name: "Obor (Boss)", hp: 120, loc: "Edgeville Dungeon" }
+    ];
+
+    const db = {
+        "Ranged": { type: "combat", unit: "Total Kills Needed", items: f2pMonsters },
+        "Attack": { type: "combat", unit: "Total Kills Needed", items: f2pMonsters },
+        "Strength": { type: "combat", unit: "Total Kills Needed", items: f2pMonsters },
+        "Defence": { type: "combat", unit: "Total Kills Needed", items: f2pMonsters },
+        "Hitpoints": { type: "combat", unit: "Total Kills Needed", items: f2pMonsters },
+        
+        "Magic": { type: "resource", unit: "Casts / Items Needed", items: [
+            { name: "Wind / Water Strike", xp: 11.5, loc: "Lumbridge Safesspots" },
+            { name: "Fire Strike", xp: 33, loc: "Safe-spotting" },
+            { name: "Superheat Item (Iron/Gold)", xp: 53, loc: "Mining Sites (Combo)" },
+            { name: "High Level Alchemy", xp: 65, loc: "Anywhere (Bank / Questing)" }
+        ]},
+        "Woodcutting": { type: "resource", unit: "Logs Needed", items: [
+            { name: "Normal Trees", xp: 25, loc: "Lumbridge / Varrock" },
+            { name: "Oak Trees", xp: 37.5, loc: "Draynor Village" },
+            { name: "Willow Trees", xp: 67.5, loc: "Draynor (World 301)" },
+            { name: "Yew Trees", xp: 175, loc: "Falador / Edgeville" }
+        ]},
+        "Mining": { type: "resource", unit: "Ore Needed", items: [
+            { name: "Copper & Tin Ore", xp: 17.5, loc: "Lumbridge Swamp / Al Kharid" },
+            { name: "Iron Ore (Power-mine)", xp: 35, loc: "Al Kharid 3-Rock Triangle" },
+            { name: "Silver Ore", xp: 40, loc: "Crafting Guild" },
+            { name: "Coal", xp: 50, loc: "Mining Guild" },
+            { name: "Gold Ore", xp: 65, loc: "Crafting Guild" },
+            { name: "Mithril Ore", xp: 80, loc: "Mining Guild" },
+            { name: "Adamantite Ore", xp: 95, loc: "Mining Guild" },
+            { name: "Runite Ore", xp: 125, loc: "Wilderness" }
+        ]},
+        "Fishing": { type: "resource", unit: "Fish Needed", items: [
+            { name: "Netting Shrimp / Anchovies", xp: 10, loc: "Lumbridge Swamp" },
+            { name: "Sardines / Herring", xp: 20, loc: "Draynor Village" },
+            { name: "Fly Fishing (Trout & Salmon)", xp: 70, loc: "Barbarian Village" },
+            { name: "Pike", xp: 80, loc: "Barbarian Village" },
+            { name: "Lobsters", xp: 90, loc: "Karamja Dock" },
+            { name: "Swordfish", xp: 100, loc: "Karamja Dock" }
+        ]},
+        "Firemaking": { type: "resource", unit: "Logs Burned", items: [
+            { name: "Normal Logs", xp: 40, loc: "Bank / Open Area" },
+            { name: "Oak Logs", xp: 60, loc: "Bank / Open Area" },
+            { name: "Willow Logs", xp: 90, loc: "Draynor (Burn-as-you-cut combo)" },
+            { name: "Maple Logs", xp: 135, loc: "Grand Exchange / Bank lines" },
+            { name: "Yew Logs", xp: 202.5, loc: "Grand Exchange / Bank lines" }
+        ]},
+        "Cooking": { type: "resource", unit: "Items Cooked", items: [
+            { name: "Raw Shrimps", xp: 30, loc: "Lumbridge Range" },
+            { name: "Trout / Salmon", xp: 70, loc: "Barbarian Village (Combo)" },
+            { name: "Lobsters", xp: 120, loc: "Al Kharid Range" },
+            { name: "Swordfish", xp: 140, loc: "Al Kharid Range" },
+            { name: "Jugs of Wine", xp: 200, loc: "Bank Stand" }
+        ]},
+        "Smithing": { type: "resource", unit: "Bars / Items Needed", items: [
+            { name: "The Knight's Sword Quest", xp: 12725, loc: "Quest Reward" },
+            { name: "Bronze Platebodies", xp: 25, loc: "Varrock Anvil" },
+            { name: "Iron Platebodies", xp: 75, loc: "Varrock Anvil" },
+            { name: "Steel Platebodies", xp: 112.5, loc: "Varrock Anvil" },
+            { name: "Mithril Platebodies", xp: 150, loc: "Varrock Anvil" },
+            { name: "Adamant Platebodies", xp: 312.5, loc: "Varrock Anvil" }
+        ]},
+        "Crafting": { type: "resource", unit: "Items Crafted", items: [
+            { name: "Leather Boots/Gloves", xp: 16.2, loc: "Bank Stand" },
+            { name: "Leather Vambraces / Chaps", xp: 25, loc: "Bank Stand" },
+            { name: "Hard Leather Bodies", xp: 35, loc: "Bank Stand" },
+            { name: "Cutting Sapphires", xp: 50, loc: "Bank Stand" },
+            { name: "Silver Tiaras", xp: 52.5, loc: "Al Kharid Furnace" },
+            { name: "Cutting Emeralds", xp: 67.5, loc: "Bank Stand" },
+            { name: "Cutting Rubies", xp: 85, loc: "Bank Stand" },
+            { name: "Diamond Amulets", xp: 100, loc: "Bank Stand" }
+        ]},
+        "Runecraft": { type: "resource", unit: "Runs / Tiaras Needed", items: [
+            { name: "Air Runes", xp: 5, loc: "Air Altar (Falador)" },
+            { name: "Mind Runes", xp: 5.5, loc: "Mind Altar" },
+            { name: "Water Runes", xp: 6, loc: "Water Altar (Lumbridge)" },
+            { name: "Earth Runes", xp: 6.5, loc: "Earth Altar (Varrock)" },
+            { name: "Fire Runes", xp: 7, loc: "Fire Altar (Al Kharid)" },
+            { name: "Body Runes", xp: 7.5, loc: "Body Altar (Edgeville)" },
+            { name: "Body Tiaras", xp: 37.5, loc: "Body Altar" }
+        ]},
+        "Prayer": { type: "resource", unit: "Bones Needed", items: [
+            { name: "Normal Bones", xp: 4.5, loc: "Burying anywhere" },
+            { name: "Burnt Bones", xp: 4.5, loc: "Burying anywhere" },
+            { name: "Bat Bones", xp: 5.3, loc: "Burying anywhere" },
+            { name: "Big Bones", xp: 15, loc: "Hill/Moss Giants (Burying)" }
+        ]}
+    };
+
+    function updateConsole() {
+        const skill = document.getElementById('skillSelect').value;
+        const targetInput = document.getElementById('targetInput');
+        const datalist = document.getElementById('targetOptions');
+        
+        datalist.innerHTML = '';
+        const data = db[skill] || db["Ranged"];
+        
+        // Populate the entire list into the datalist for searching/scrolling
+        data.items.forEach(item => {
+            let opt = document.createElement('option');
+            opt.value = item.name;
+            datalist.appendChild(opt);
+        });
+
+        // Set a default value if input is empty or invalid for the new skill
+        if (!targetInput.value || !data.items.some(i => i.name.toLowerCase() === targetInput.value.toLowerCase())) {
+            targetInput.value = data.items[0].name;
+        }
+
+        calculateResults();
+    }
+
+    function calculateResults() {
+        const skill = document.getElementById('skillSelect').value;
+        const curr = parseInt(document.getElementById('currLevel').value) || 1;
+        let target = parseInt(document.getElementById('targetLevel').value) || 2;
+        if (target <= curr) target = curr + 1;
+
+        const currXp = getLevelXP(curr);
+        const targetXp = getLevelXP(target);
+        const xpNeeded = targetXp - currXp;
+
+        const data = db[skill] || db["Ranged"];
+        const typedName = document.getElementById('targetInput').value;
+        
+        let activeItem = data.items.find(i => i.name.toLowerCase() === typedName.toLowerCase()) || data.items[0];
+
+        let actionsNeeded = 0;
+        if (data.type === "combat") {
+            const xpPerKill = activeItem.hp * 4;
+            actionsNeeded = Math.ceil(xpNeeded / xpPerKill);
+            document.getElementById('actionLabel').innerText = "Total Kills Needed:";
+            document.getElementById('outLocation').innerText = activeItem.loc || "Combat Area";
+        } else {
+            actionsNeeded = Math.ceil(xpNeeded / activeItem.xp);
+            document.getElementById('actionLabel').innerText = data.unit + ":";
+            document.getElementById('outLocation').innerText = activeItem.loc || "General F2P";
+        }
+
+        document.getElementById('outXp').innerText = xpNeeded.toLocaleString() + " XP";
+        document.getElementById('outActions').innerText = actionsNeeded.toLocaleString();
+
+        const comboBox = document.getElementById('comboBox');
+        const comboText = document.getElementById('comboText');
+        
+        if (skill === "Woodcutting" && curr >= 30) {
+            comboBox.style.display = "flex";
+            comboText.innerText = "Pair with Firemaking: Burn Willow logs instantly as you cut them to hit 99 Firemaking concurrently.";
+        } else if (skill === "Fishing" && curr >= 20) {
+            comboBox.style.display = "flex";
+            comboText.innerText = "Pair with Cooking: Train at Barbarian Village, light a fire, cook your trout/salmon, and drop them.";
+        } else if (skill === "Mining" && curr >= 15) {
+            comboBox.style.display = "flex";
+            comboText.innerText = "Pair with Magic: Bring a Fire Staff and Nature runes to superheat your iron/gold ore right inside the mine.";
+        } else {
+            comboBox.style.display = "none";
+        }
+    }
+
+    function handleImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const status = document.getElementById('ocrStatus');
+        status.innerText = "Scanning screenshot for stats...";
+
+        Tesseract.recognize(
+            file,
+            'eng',
+            { logger: m => console.log(m.status + ": " + Math.round(m.progress * 100) + "%") }
+        ).then(({ data: { text } }) => {
+            status.innerText = "Scan complete! Parsing levels...";
+            parseOcrText(text);
+        }).catch(err => {
+            console.error(err);
+            status.innerText = "Error scanning image. Try manual entry.";
+        });
+    }
+
+    function parseOcrText(text) {
+        const lines = text.split('\n');
+        let foundLevel = null;
+
+        for (let line of lines) {
+            for (let skill of Object.keys(db)) {
+                if (line.toLowerCase().includes(skill.toLowerCase())) {
+                    const match = line.match(/\d+/);
+                    if (match) {
+                        const lvl = parseInt(match[0]);
+                        if (lvl >= 1 && lvl <= 99) {
+                            document.getElementById('skillSelect').value = skill;
+                            document.getElementById('currLevel').value = lvl;
+                            if (lvl < 99) document.getElementById('targetLevel').value = lvl + 1;
+                            foundLevel = skill;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (foundLevel) break;
+        }
+
+        const status = document.getElementById('ocrStatus');
+        if (foundLevel) {
+            status.innerText = `Successfully loaded ${foundLevel} level!`;
+            updateConsole();
+        } else {
+            status.innerText = "Could not automatically isolate stats. Please select manually.";
+        }
+    }
+
+    window.onload = updateConsole;
+</script>
+
+</body>
+</html>
